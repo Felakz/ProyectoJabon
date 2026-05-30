@@ -1,0 +1,13 @@
+{
+  "name": "proyecto-jabones",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "pnpm --filter @apps/web dev",
+    "dev:api": "pnpm --filter @apps/api dev"
+  }
+}

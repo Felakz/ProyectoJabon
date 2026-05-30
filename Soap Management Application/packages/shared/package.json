@@ -1,0 +1,13 @@
+{
+  "name": "@proyecto-jabones/shared",
+  "version": "1.0.0",
+  "description": "Tipos y lógica compartida para la aplicación de gestión de jabones",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": ["jabones", "shared", "types"],
+  "author": "",
+  "license": "MIT"
+}

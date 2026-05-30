@@ -1,0 +1,90 @@
+[
+  {
+    "id": "1",
+    "name": "Suave Tropical",
+    "description": "Mezcla hidratante con aceite de coco predominante",
+    "targetWeight": 1000,
+    "ingredients": [
+      {
+        "ingredientId": "3",
+        "percentage": 60
+      },
+      {
+        "ingredientId": "1",
+        "percentage": 25
+      },
+      {
+        "ingredientId": "2",
+        "percentage": 15
+      }
+    ],
+    "overfattingPercentage": 5,
+    "waterDiscountPercentage": 10
+  },
+  {
+    "id": "2",
+    "name": "Equilibrio Clásico",
+    "description": "Receta balanceada para uso diario",
+    "targetWeight": 1200,
+    "ingredients": [
+      {
+        "ingredientId": "1",
+        "percentage": 50
+      },
+      {
+        "ingredientId": "2",
+        "percentage": 30
+      },
+      {
+        "ingredientId": "3",
+        "percentage": 20
+      }
+    ],
+    "overfattingPercentage": 6,
+    "waterDiscountPercentage": 8
+  },
+  {
+    "id": "3",
+    "name": "Refrescante",
+    "description": "Alta proporción de aceite ligero para espuma y limpieza",
+    "targetWeight": 900,
+    "ingredients": [
+      {
+        "ingredientId": "2",
+        "percentage": 50
+      },
+      {
+        "ingredientId": "3",
+        "percentage": 30
+      },
+      {
+        "ingredientId": "1",
+        "percentage": 20
+      }
+    ],
+    "overfattingPercentage": 4,
+    "waterDiscountPercentage": 5
+  },
+  {
+    "id": "4",
+    "name": "Formula Potente",
+    "description": "Jaboncito bonito",
+    "targetWeight": 10000,
+    "ingredients": [
+      {
+        "ingredientId": "3",
+        "percentage": 10
+      },
+      {
+        "ingredientId": "5",
+        "percentage": 26
+      },
+      {
+        "ingredientId": "4",
+        "percentage": 64
+      }
+    ],
+    "overfattingPercentage": 5,
+    "waterDiscountPercentage": 10
+  }
+]
