@@ -23,9 +23,12 @@ import {
   validateRecipe,
 } from './controllers/calculator.controller';
 import { getInvoiceInfo, nextInvoiceNumber, saveCurrentInvoice, getCurrentInvoice } from './controllers/invoice.controller';
+import { init as initDatabase } from './db/sqlite';
 
 const app: Application = express();
 const PORT = process.env.PORT || 3000;
+
+initDatabase();
 
 // Middlewares
 app.use(cors());

@@ -1,70 +1,31 @@
 import { Request, Response } from 'express';
-import fs from 'fs';
-import path from 'path';
-
-const DATA_DIR = path.resolve(__dirname, '..', '..', 'data');
-const INVOICE_FILE = path.join(DATA_DIR, 'invoice.json');
-const CURRENT_INVOICE_FILE = path.join(DATA_DIR, 'current-invoice.json');
-
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-ensureDataDir();
-
-function readInvoiceFile() {
-  try {
-    if (fs.existsSync(INVOICE_FILE)) {
-      return JSON.parse(fs.readFileSync(INVOICE_FILE, 'utf8'));
-    }
-  } catch (e) {
-    console.error('Error leyendo invoice.json', e);
-  }
-  return { series: 'B001', lastNumber: 0 };
-}
-
-function writeInvoiceFile(data: any) {
-  try {
-    fs.writeFileSync(INVOICE_FILE, JSON.stringify(data, null, 2), 'utf8');
-  } catch (e) {
-    console.error('Error escribiendo invoice.json', e);
-  }
-}
-
-function readCurrentInvoiceFile() {
-  try {
-    if (fs.existsSync(CURRENT_INVOICE_FILE)) {
-      return JSON.parse(fs.readFileSync(CURRENT_INVOICE_FILE, 'utf8'));
-    }
-  } catch (e) {
-    console.error('Error leyendo current-invoice.json', e);
-  }
-  return null;
-}
-
-function writeCurrentInvoiceFile(data: any) {
-  try {
-    fs.writeFileSync(CURRENT_INVOICE_FILE, JSON.stringify(data, null, 2), 'utf8');
-  } catch (e) {
-    console.error('Error escribiendo current-invoice.json', e);
-  }
-}
+import {
+  getInvoiceState,
+  nextInvoiceNumber as dbNextInvoiceNumber,
+  saveCurrentInvoice as dbSaveCurrentInvoice,
+  getCurrentInvoice as dbGetCurrentInvoice,
+} from '../db/sqlite';
 
 export const getInvoiceInfo = (req: Request, res: Response) => {
-  const info = readInvoiceFile();
+  const info = getInvoiceState();
   res.status(200).json({ success: true, data: info });
 };
 
 export const nextInvoiceNumber = (req: Request, res: Response) => {
   try {
-    const info = readInvoiceFile();
-    info.lastNumber = (info.lastNumber || 0) + 1;
-    writeInvoiceFile(info);
+    const next = dbNextInvoiceNumber();
+    const fullNumber = `${next.series}-${next.lastNumber.toString().padStart(3, '0')}`;
 
-    const full = `${info.series}-${info.lastNumber.toString().padStart(3, '0')}`;
-    res.status(200).json({ success: true, data: { series: info.series, number: info.lastNumber, fullNumber: full } });
-  } catch (e) {
-    console.error('Error generando next invoice number', e);
+    res.status(200).json({
+      success: true,
+      data: {
+        series: next.series,
+        number: next.lastNumber,
+        fullNumber,
+      },
+    });
+  } catch (error) {
+    console.error('Error generando next invoice number', error);
     res.status(500).json({ success: false, error: 'No se pudo generar número de boleta' });
   }
 };
@@ -77,25 +38,25 @@ export const saveCurrentInvoice = (req: Request, res: Response) => {
       return;
     }
 
-    writeCurrentInvoiceFile(payload);
+    dbSaveCurrentInvoice(payload);
     res.status(200).json({ success: true, data: payload });
-  } catch (e) {
-    console.error('Error guardando boleta actual', e);
+  } catch (error) {
+    console.error('Error guardando boleta actual', error);
     res.status(500).json({ success: false, error: 'No se pudo guardar la boleta actual' });
   }
 };
 
 export const getCurrentInvoice = (req: Request, res: Response) => {
   try {
-    const payload = readCurrentInvoiceFile();
+    const payload = dbGetCurrentInvoice();
     if (!payload) {
       res.status(404).json({ success: false, error: 'No hay boleta actual' });
       return;
     }
 
     res.status(200).json({ success: true, data: payload });
-  } catch (e) {
-    console.error('Error obteniendo boleta actual', e);
+  } catch (error) {
+    console.error('Error obteniendo boleta actual', error);
     res.status(500).json({ success: false, error: 'No se pudo obtener la boleta actual' });
   }
 };

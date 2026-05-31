@@ -4,8 +4,6 @@
  */
 
 import { Request, Response } from 'express';
-import fs from 'fs';
-import path from 'path';
 import type {
   Recipe,
   RecipeInput,
@@ -19,61 +17,14 @@ import {
   checkStockAvailability,
   calculateFinancialSummary,
 } from '../../../../packages/shared/src/calculations/soapMath';
-import { getIngredientsDB } from './inventory.controller';
-
-/**
- * Base de datos en memoria para recetas (temporal)
- * En producción, esto se reemplazará con una base de datos real
- */
-const DATA_DIR = path.resolve(__dirname, '..', '..', 'data');
-const RECIPES_FILE = path.join(DATA_DIR, 'recipes.json');
-
-function ensureDataDirCalc() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-}
-
-const initialRecipes: Recipe[] = [
-  {
-    id: '1',
-    name: 'Receta Simple Suave',
-    description: 'Receta demostrativa usando Aceite de Oliva',
-    targetWeight: 1000,
-    ingredients: [
-      { ingredientId: '1', percentage: 100 },
-    ],
-    overfattingPercentage: 5,
-    waterDiscountPercentage: 0,
-  },
-];
-
-ensureDataDirCalc();
-
-let recipesDB: Recipe[] = (() => {
-  try {
-    if (fs.existsSync(RECIPES_FILE)) {
-      const raw = fs.readFileSync(RECIPES_FILE, 'utf8');
-      return JSON.parse(raw) as Recipe[];
-    }
-  } catch (e) {
-    console.error('Error leyendo recipes.json, usando semilla:', e);
-  }
-  try {
-    fs.writeFileSync(RECIPES_FILE, JSON.stringify(initialRecipes, null, 2), 'utf8');
-  } catch (e) {
-    console.error('Error escribiendo recipes.json:', e);
-  }
-  return initialRecipes.slice();
-})();
-
-function saveRecipes() {
-  try {
-    fs.writeFileSync(RECIPES_FILE, JSON.stringify(recipesDB, null, 2), 'utf8');
-  } catch (e) {
-    console.error('Error guardando recipes.json:', e);
-  }
-}
+import {
+  getAllRecipes as dbGetAllRecipes,
+  getRecipeById as dbGetRecipeById,
+  createRecipe as dbCreateRecipe,
+  updateRecipe as dbUpdateRecipe,
+  deleteRecipe as dbDeleteRecipe,
+  getAllIngredients as dbGetAllIngredients,
+} from '../db/sqlite';
 
 function validateRecipeInput(recipe: RecipeInput): string[] {
   const errors: string[] = [];
@@ -95,7 +46,6 @@ function validateRecipeInput(recipe: RecipeInput): string[] {
     errors.push(`Los porcentajes deben sumar 100%. Suma actual: ${totalPercentage.toFixed(2)}%`);
   }
 
-  // Estos campos son opcionales en la UI ahora; si vienen, los validamos, si no, se usan valores por defecto
   const overfat = recipe.overfattingPercentage ?? 5;
   const waterDiscount = recipe.waterDiscountPercentage ?? 0;
 
@@ -111,8 +61,9 @@ function validateRecipeInput(recipe: RecipeInput): string[] {
 }
 
 function buildRecipeFromInput(input: RecipeInput, existingId?: string): Recipe {
+  const allRecipes = dbGetAllRecipes() as Recipe[];
   return {
-    id: existingId || (Math.max(...recipesDB.map(recipe => parseInt(recipe.id, 10)), 0) + 1).toString(),
+    id: existingId || (Math.max(...allRecipes.map(recipe => parseInt(recipe.id, 10) || 0), 0) + 1).toString(),
     name: input.name.trim(),
     description: input.description.trim(),
     targetWeight: input.targetWeight,
@@ -125,20 +76,12 @@ function buildRecipeFromInput(input: RecipeInput, existingId?: string): Recipe {
   };
 }
 
-/**
- * POST /api/calculator/calculate
- * Procesa el cálculo completo de una receta de jabón
- */
 export const processSoapCalculation = (req: Request, res: Response): void => {
   try {
-    console.log('DEBUG processSoapCalculation body:', req.body);
-    console.log('DEBUG recipesDB ids:', recipesDB.map(r => r.id));
     const { recipeId, targetWeight, soapCount, gramsPerSoap }: CalculationRequest = req.body;
+
     if (!recipeId) {
-      res.status(400).json({
-        success: false,
-        error: 'El ID de la receta es obligatorio',
-      } as CalculationResponse);
+      res.status(400).json({ success: false, error: 'El ID de la receta es obligatorio' } as CalculationResponse);
       return;
     }
 
@@ -157,65 +100,32 @@ export const processSoapCalculation = (req: Request, res: Response): void => {
       return;
     }
 
-    // Buscar la receta en la base de datos
-    const recipe = recipesDB.find(r => r.id === recipeId);
-
+    const recipe = dbGetRecipeById(recipeId) as Recipe | null;
     if (!recipe) {
-      res.status(404).json({
-        success: false,
-        error: `Receta con ID ${recipeId} no encontrada`,
-      } as CalculationResponse);
+      res.status(404).json({ success: false, error: `Receta con ID ${recipeId} no encontrada` } as CalculationResponse);
       return;
     }
 
-    // Obtener datos actuales del inventario
-    const ingredientsData = getIngredientsDB();
-
-    // 1. Calcular gramos necesarios de cada ingrediente
-    const {
-      oils: oilsGrams,
-      lyeGrams,
-      waterGrams,
-      totalOilsWeight,
-    } = calculateGramsFromWeight(effectiveTargetWeight, recipe, ingredientsData);
-
-    // 2. Verificar disponibilidad de stock y generar desglose
+    const ingredientsData = dbGetAllIngredients();
+    const { oils: oilsGrams, lyeGrams, waterGrams } = calculateGramsFromWeight(effectiveTargetWeight, recipe, ingredientsData);
     const oilsBreakdown = checkStockAvailability(oilsGrams, ingredientsData);
+    const { totalCost } = calculateBatchCost(oilsGrams, ingredientsData);
 
-    // 3. Calcular costos del batch
-    const { totalCost } = calculateBatchCost(
-      oilsGrams,
-      ingredientsData
-    );
-
-    // Agregar costo de sosa y agua (estimado)
-    const lyeCostPerGram = 0.01; // S/ 0.01 por gramo (ajustar según mercado)
-    const waterCostPerGram = 0.001; // S/ 0.001 por gramo (muy bajo)
-    const lyeCost = lyeGrams * lyeCostPerGram;
-    const waterCost = waterGrams * waterCostPerGram;
-    const totalCostWithAllIngredients = totalCost + lyeCost + waterCost;
-
-    // 4. Verificar si se puede hacer el batch
+    const lyeCostPerGram = 0.01;
+    const waterCostPerGram = 0.001;
+    const totalCostWithAllIngredients = totalCost + (lyeGrams * lyeCostPerGram) + (waterGrams * waterCostPerGram);
     const canMakeBatch = oilsBreakdown.every(oil => oil.hasEnoughStock);
 
-    // 5. Generar alertas amigables de ingredientes faltantes
     const alerts: string[] = [];
-
     if (!canMakeBatch) {
       alerts.push('⚠️ No hay suficiente stock para completar este batch:');
-
-      oilsBreakdown
-        .filter(oil => !oil.hasEnoughStock)
-        .forEach(oil => {
-          alerts.push(
-            `   • Te faltan ${oil.gramsMissing}g de ${oil.name} (disponible: ${oil.gramsAvailable}g, necesario: ${oil.gramsNeeded}g)`
-          );
-        });
+      oilsBreakdown.filter(oil => !oil.hasEnoughStock).forEach(oil => {
+        alerts.push(`   • Te faltan ${oil.gramsMissing}g de ${oil.name} (disponible: ${oil.gramsAvailable}g, necesario: ${oil.gramsNeeded}g)`);
+      });
     } else {
       alerts.push('✅ Tienes suficiente stock para crear este batch');
     }
 
-    // Validar que el batch tenga sentido
     if (effectiveTargetWeight < 100) {
       alerts.push('ℹ️ El peso objetivo es muy bajo. Se recomienda un mínimo de 100g para un batch práctico.');
     }
@@ -224,7 +134,6 @@ export const processSoapCalculation = (req: Request, res: Response): void => {
       alerts.push('⚠️ El peso objetivo es muy alto. Verifica que sea correcto.');
     }
 
-    // 6. Construir la respuesta completa
     const calculation: SoapCalculation = {
       recipe,
       targetWeight: effectiveTargetWeight,
@@ -239,14 +148,9 @@ export const processSoapCalculation = (req: Request, res: Response): void => {
       alerts,
     };
 
-    res.status(200).json({
-      success: true,
-      calculation,
-    } as CalculationResponse);
-
+    res.status(200).json({ success: true, calculation } as CalculationResponse);
   } catch (error) {
     console.error('Error en processSoapCalculation:', error);
-
     res.status(500).json({
       success: false,
       error: 'Error al procesar el cálculo',
@@ -255,17 +159,10 @@ export const processSoapCalculation = (req: Request, res: Response): void => {
   }
 };
 
-/**
- * GET /api/calculator/recipes
- * Obtiene todas las recetas disponibles
- */
 export const getAllRecipes = (req: Request, res: Response): void => {
   try {
-    res.status(200).json({
-      success: true,
-      data: recipesDB,
-      count: recipesDB.length,
-    });
+    const recipes = dbGetAllRecipes();
+    res.status(200).json({ success: true, data: recipes, count: recipes.length });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -275,10 +172,6 @@ export const getAllRecipes = (req: Request, res: Response): void => {
   }
 };
 
-/**
- * POST /api/calculator/recipes
- * Crea una nueva receta
- */
 export const createRecipe = (req: Request, res: Response): void => {
   try {
     const recipeInput: RecipeInput = req.body;
@@ -294,14 +187,8 @@ export const createRecipe = (req: Request, res: Response): void => {
     }
 
     const newRecipe = buildRecipeFromInput(recipeInput);
-    recipesDB.push(newRecipe);
-    saveRecipes();
-
-    res.status(201).json({
-      success: true,
-      message: 'Receta creada exitosamente',
-      data: newRecipe,
-    });
+    const saved = dbCreateRecipe(newRecipe);
+    res.status(201).json({ success: true, message: 'Receta creada exitosamente', data: saved });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -311,24 +198,16 @@ export const createRecipe = (req: Request, res: Response): void => {
   }
 };
 
-/**
- * PUT /api/calculator/recipes/:id
- * Actualiza una receta existente
- */
 export const updateRecipe = (req: Request, res: Response): void => {
   try {
     const { id } = req.params;
-    const recipeIndex = recipesDB.findIndex(recipe => recipe.id === id);
+    const currentRecipe = dbGetRecipeById(id) as Recipe | null;
 
-    if (recipeIndex === -1) {
-      res.status(404).json({
-        success: false,
-        error: `Receta con ID ${id} no encontrada`,
-      });
+    if (!currentRecipe) {
+      res.status(404).json({ success: false, error: `Receta con ID ${id} no encontrada` });
       return;
     }
 
-    const currentRecipe = recipesDB[recipeIndex];
     const recipeInput: RecipeInput = {
       name: req.body.name ?? currentRecipe.name,
       description: req.body.description ?? currentRecipe.description,
@@ -339,7 +218,6 @@ export const updateRecipe = (req: Request, res: Response): void => {
     };
 
     const errors = validateRecipeInput(recipeInput);
-
     if (errors.length > 0) {
       res.status(400).json({
         success: false,
@@ -350,14 +228,8 @@ export const updateRecipe = (req: Request, res: Response): void => {
     }
 
     const updatedRecipe = buildRecipeFromInput(recipeInput, currentRecipe.id);
-    recipesDB[recipeIndex] = updatedRecipe;
-    saveRecipes();
-
-    res.status(200).json({
-      success: true,
-      message: 'Receta actualizada exitosamente',
-      data: updatedRecipe,
-    });
+    const saved = dbUpdateRecipe(id, updatedRecipe);
+    res.status(200).json({ success: true, message: 'Receta actualizada exitosamente', data: saved });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -367,32 +239,17 @@ export const updateRecipe = (req: Request, res: Response): void => {
   }
 };
 
-/**
- * DELETE /api/calculator/recipes/:id
- * Elimina una receta
- */
 export const deleteRecipe = (req: Request, res: Response): void => {
   try {
     const { id } = req.params;
-    const recipeIndex = recipesDB.findIndex(recipe => recipe.id === id);
+    const deletedRecipe = dbDeleteRecipe(id);
 
-    if (recipeIndex === -1) {
-      res.status(404).json({
-        success: false,
-        error: `Receta con ID ${id} no encontrada`,
-      });
+    if (!deletedRecipe) {
+      res.status(404).json({ success: false, error: `Receta con ID ${id} no encontrada` });
       return;
     }
 
-    const deletedRecipe = recipesDB[recipeIndex];
-    recipesDB = recipesDB.filter(recipe => recipe.id !== id);
-    saveRecipes();
-
-    res.status(200).json({
-      success: true,
-      message: 'Receta eliminada exitosamente',
-      data: deletedRecipe,
-    });
+    res.status(200).json({ success: true, message: 'Receta eliminada exitosamente', data: deletedRecipe });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -402,27 +259,17 @@ export const deleteRecipe = (req: Request, res: Response): void => {
   }
 };
 
-/**
- * GET /api/calculator/recipes/:id
- * Obtiene una receta específica por ID
- */
 export const getRecipeById = (req: Request, res: Response): void => {
   try {
     const { id } = req.params;
-    const recipe = recipesDB.find(r => r.id === id);
+    const recipe = dbGetRecipeById(id);
 
     if (!recipe) {
-      res.status(404).json({
-        success: false,
-        error: `Receta con ID ${id} no encontrada`,
-      });
+      res.status(404).json({ success: false, error: `Receta con ID ${id} no encontrada` });
       return;
     }
 
-    res.status(200).json({
-      success: true,
-      data: recipe,
-    });
+    res.status(200).json({ success: true, data: recipe });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -432,38 +279,24 @@ export const getRecipeById = (req: Request, res: Response): void => {
   }
 };
 
-/**
- * POST /api/calculator/financial-summary
- * Calcula el resumen financiero de un batch
- */
 export const getFinancialSummary = (req: Request, res: Response): void => {
   try {
     const { totalCost, soapsPerBatch, desiredProfitMargin } = req.body;
 
     if (!totalCost || totalCost <= 0) {
-      res.status(400).json({
-        success: false,
-        error: 'El costo total debe ser mayor a 0',
-      });
+      res.status(400).json({ success: false, error: 'El costo total debe ser mayor a 0' });
       return;
     }
 
     if (!soapsPerBatch || soapsPerBatch <= 0) {
-      res.status(400).json({
-        success: false,
-        error: 'La cantidad de jabones por batch debe ser mayor a 0',
-      });
+      res.status(400).json({ success: false, error: 'La cantidad de jabones por batch debe ser mayor a 0' });
       return;
     }
 
-    const profitMargin = desiredProfitMargin || 40; // Default 40% margen
-
+    const profitMargin = desiredProfitMargin || 40;
     const summary = calculateFinancialSummary(totalCost, soapsPerBatch, profitMargin);
 
-    res.status(200).json({
-      success: true,
-      data: summary,
-    });
+    res.status(200).json({ success: true, data: summary });
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -473,40 +306,25 @@ export const getFinancialSummary = (req: Request, res: Response): void => {
   }
 };
 
-/**
- * POST /api/calculator/validate-recipe
- * Valida que una receta tenga porcentajes correctos
- */
 export const validateRecipe = (req: Request, res: Response): void => {
   try {
     const recipe: Recipe = req.body;
     const errors: string[] = [];
-
-    // Validar que los porcentajes sumen 100%
-    const totalPercentage = recipe.ingredients.reduce(
-      (sum, ing) => sum + ing.percentage,
-      0
-    );
+    const totalPercentage = recipe.ingredients.reduce((sum, ing) => sum + ing.percentage, 0);
 
     if (Math.abs(totalPercentage - 100) > 0.01) {
-      errors.push(
-        `Los porcentajes deben sumar 100%. Suma actual: ${totalPercentage.toFixed(2)}%`
-      );
+      errors.push(`Los porcentajes deben sumar 100%. Suma actual: ${totalPercentage.toFixed(2)}%`);
     }
 
-    // Validar que todos los ingredientes existan en el inventario
-    const ingredientsData = getIngredientsDB();
-    const ingredientIds = new Set(ingredientsData.map(ing => ing.id));
+    const ingredientsData = dbGetAllIngredients();
+    const ingredientIds = new Set(ingredientsData.map((ing: any) => ing.id));
 
     recipe.ingredients.forEach(recipeIng => {
       if (!ingredientIds.has(recipeIng.ingredientId)) {
-        errors.push(
-          `El ingrediente con ID ${recipeIng.ingredientId} no existe en el inventario`
-        );
+        errors.push(`El ingrediente con ID ${recipeIng.ingredientId} no existe en el inventario`);
       }
     });
 
-    // Validar rangos razonables
     if (recipe.overfattingPercentage < 0 || recipe.overfattingPercentage > 20) {
       errors.push('El porcentaje de sobreengrasado debe estar entre 0% y 20%');
     }
@@ -516,19 +334,11 @@ export const validateRecipe = (req: Request, res: Response): void => {
     }
 
     if (errors.length > 0) {
-      res.status(400).json({
-        success: false,
-        valid: false,
-        errors,
-      });
+      res.status(400).json({ success: false, error: 'La receta no es válida', details: errors });
       return;
     }
 
-    res.status(200).json({
-      success: true,
-      valid: true,
-      message: 'La receta es válida',
-    });
+    res.status(200).json({ success: true, message: 'La receta es válida' });
   } catch (error) {
     res.status(500).json({
       success: false,
