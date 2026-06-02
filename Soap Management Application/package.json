@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 0.0.0.0 --port 1402 --strictPort",
     "build": "vite build",
     "preview": "vite preview",
     "api:dev": "cd apps/api && pnpm dev",

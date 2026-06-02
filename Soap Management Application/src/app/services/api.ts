@@ -1,4 +1,11 @@
-const API_BASE_URL = 'http://localhost:3000/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL ?? '/api';
+
+export interface Category {
+  id: string;
+  name: string;
+  description: string;
+  type: 'ingredient' | 'product' | 'transaction';
+}
 
 export interface Ingredient {
   id: string;
@@ -7,6 +14,29 @@ export interface Ingredient {
   totalCost: number;
   costPerGram: number;
   sapValue: number;
+  categoryId?: string;
+  price?: number;
+  weight?: number;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  description: string;
+  categoryId?: string;
+  categoryName?: string;
+  baseRecipeId: string;
+  recipeName?: string;
+  variants?: ProductVariant[];
+}
+
+export interface ProductVariant {
+  id: string;
+  productId: string;
+  weight: number;
+  sku: string;
+  price: number;
+  stock: number;
 }
 
 export interface Recipe {
@@ -39,6 +69,41 @@ export interface CalculationRequest {
   targetWeight?: number;
   soapCount?: number;
   gramsPerSoap?: number;
+}
+
+export interface DashboardMetric {
+  label: string;
+  value: string;
+  hint: string;
+  tone: 'rose' | 'sky' | 'emerald' | 'amber';
+}
+
+export interface DashboardMetricsResponse {
+  metrics: DashboardMetric[];
+  lowStockThreshold: number;
+  lowStockIngredients: Ingredient[];
+  recentProductions: Array<{ id: string; name: string; description: string; targetWeight: number }>;
+  recentSales: Array<{ invoice: string; customer: string; total: number }>;
+  quickLinks: Array<{ label: string; target: 'inventory' | 'recipes' | 'facturacion' }>;
+}
+
+export interface InventoryMovement {
+  id: string;
+  ingredientId: string;
+  ingredientName?: string;
+  type: 'ingreso' | 'egreso' | 'ajuste';
+  quantity: number;
+  reason: string;
+  location: string;
+  beforeStock: number;
+  afterStock: number;
+  createdAt: string;
+}
+
+export interface InventoryLocation {
+  id: number;
+  name: string;
+  isDefault: number;
 }
 
 class ApiService {
@@ -93,6 +158,43 @@ class ApiService {
     await fetch(`${API_BASE_URL}/inventory/${id}`, {
       method: 'DELETE',
     });
+  }
+
+  async fetchMovements(filters?: { categoryId?: string; startDate?: string; endDate?: string }): Promise<InventoryMovement[]> {
+    let url = `${API_BASE_URL}/inventory/movements`;
+    const params = new URLSearchParams();
+    if (filters?.categoryId) params.append('categoryId', filters.categoryId);
+    if (filters?.startDate) params.append('startDate', filters.startDate);
+    if (filters?.endDate) params.append('endDate', filters.endDate);
+    const qs = params.toString();
+    if (qs) url += `?${qs}`;
+
+    const response = await fetch(url);
+    const data = await this.requestJson<{ data: InventoryMovement[] }>(response);
+    return data.data ?? [];
+  }
+
+  async fetchCategories(type?: string): Promise<Category[]> {
+    let url = `${API_BASE_URL}/categories`;
+    if (type) url += `?type=${encodeURIComponent(type)}`;
+    const response = await fetch(url);
+    const data = await this.requestJson<{ data: Category[] }>(response);
+    return data.data ?? [];
+  }
+
+  async bulkImportIngredients(ingredients: Array<Omit<Ingredient, 'id' | 'costPerGram'>>): Promise<{ data: Ingredient[], errors?: string[] }> {
+    const response = await fetch(`${API_BASE_URL}/inventory/bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ingredients }),
+    });
+    return this.requestJson<{ data: Ingredient[], errors?: string[] }>(response);
+  }
+
+  async fetchLocations(): Promise<InventoryLocation[]> {
+    const response = await fetch(`${API_BASE_URL}/inventory/locations`);
+    const data = await this.requestJson<{ data: InventoryLocation[] }>(response);
+    return data.data ?? [];
   }
 
   async fetchRecipes(): Promise<Recipe[]> {
@@ -163,6 +265,12 @@ class ApiService {
     return data.calculation;
   }
 
+  async fetchDashboardMetrics(lowStockThreshold = 1000): Promise<DashboardMetricsResponse> {
+    const response = await fetch(`${API_BASE_URL}/metrics?lowStockThreshold=${encodeURIComponent(String(lowStockThreshold))}`);
+    const data = await this.requestJson<{ data: DashboardMetricsResponse }>(response);
+    return data.data;
+  }
+
   async getInvoiceInfo(): Promise<{ series: string; lastNumber: number }> {
     const response = await fetch(`${API_BASE_URL}/invoice`);
     const data = await this.requestJson<{ data: { series: string; lastNumber: number } }>(response);
@@ -189,6 +297,100 @@ class ApiService {
     const response = await fetch(`${API_BASE_URL}/invoice/current`);
     const data = await this.requestJson<{ data: any }>(response);
     return data.data;
+  }
+
+  async fetchProducts(): Promise<Product[]> {
+    const response = await fetch(`${API_BASE_URL}/products`);
+    const data = await this.requestJson<{ data: Product[] }>(response);
+    return data.data ?? [];
+  }
+
+  async fetchProductById(id: string): Promise<Product> {
+    const response = await fetch(`${API_BASE_URL}/products/${id}`);
+    const data = await this.requestJson<{ data: Product }>(response);
+    return data.data;
+  }
+
+  async createProduct(product: Omit<Product, 'id'> & { initialVariant?: Omit<ProductVariant, 'id' | 'productId'> }): Promise<Product> {
+    const response = await fetch(`${API_BASE_URL}/products`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(product),
+    });
+    const data = await this.requestJson<{ data: Product }>(response);
+    return data.data;
+  }
+
+  async updateProduct(id: string, product: Partial<Product>): Promise<Product> {
+    const response = await fetch(`${API_BASE_URL}/products/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(product),
+    });
+    const data = await this.requestJson<{ data: Product }>(response);
+    return data.data;
+  }
+
+  async deleteProduct(id: string): Promise<void> {
+    await fetch(`${API_BASE_URL}/products/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async createVariant(productId: string, variant: Omit<ProductVariant, 'id' | 'productId'>): Promise<ProductVariant> {
+    const response = await fetch(`${API_BASE_URL}/products/${productId}/variants`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(variant),
+    });
+    const data = await this.requestJson<{ data: ProductVariant }>(response);
+    return data.data;
+  }
+
+  async updateVariant(id: string, variant: Partial<ProductVariant>): Promise<ProductVariant> {
+    const response = await fetch(`${API_BASE_URL}/variants/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(variant),
+    });
+    const data = await this.requestJson<{ data: ProductVariant }>(response);
+    return data.data;
+  }
+
+  async deleteVariant(id: string): Promise<void> {
+    await fetch(`${API_BASE_URL}/variants/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async sellBatch(payload: { 
+    items: Array<{ variantId: string; quantity: number }>; 
+    clientName: string; 
+    clientIdType: string; 
+    clientIdNumber: string; 
+    clientAddress: string; 
+  }): Promise<any> {
+    const response = await fetch(`${API_BASE_URL}/products/sell-batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return this.requestJson<any>(response);
+  }
+
+  async fetchTransactions(filters?: { type?: string; categoryId?: string; startDate?: string; endDate?: string }): Promise<any[]> {
+    let url = `${API_BASE_URL}/transactions`;
+    const params = new URLSearchParams();
+    if (filters?.type) params.append('type', filters.type);
+    if (filters?.categoryId) params.append('categoryId', filters.categoryId);
+    if (filters?.startDate) params.append('startDate', filters.startDate);
+    if (filters?.endDate) params.append('endDate', filters.endDate);
+    const qs = params.toString();
+    if (qs) url += `?${qs}`;
+
+    const response = await fetch(url);
+    const data = await this.requestJson<{ data: any[] }>(response);
+    return data.data ?? [];
   }
 }
 

@@ -6,18 +6,32 @@ import { Inventory } from './components/Inventory';
 import { Calculator } from './components/Calculator';
 import { Recipes } from './components/Recipes';
 import { Facturacion } from './components/Facturacion';
-import { api, type Ingredient, type Recipe, type RecipeInput, type CalculationRequest } from './services/api';
+import { HistorialVentas } from './components/HistorialVentas';
+import { Ganancias } from './components/Ganancias';
+import { api, type Ingredient, type Recipe, type RecipeInput, type CalculationRequest, type DashboardMetricsResponse, type InventoryMovement, type InventoryLocation, type Category, type Product } from './services/api';
 import { toast } from 'sonner';
 
-type Tab = 'dashboard' | 'inventory' | 'calculator' | 'recipes' | 'facturacion';
+type Tab = 'dashboard' | 'inventory' | 'calculator' | 'recipes' | 'facturacion' | 'facturacion-historial' | 'facturacion-ganancias';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [facturacionMenuOpen, setFacturacionMenuOpen] = useState(false);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
+  const [dashboardMetrics, setDashboardMetrics] = useState<DashboardMetricsResponse | null>(null);
+  const [movements, setMovements] = useState<InventoryMovement[]>([]);
+  const [locations, setLocations] = useState<InventoryLocation[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeTab.startsWith('facturacion')) {
+      setFacturacionMenuOpen(true);
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     loadData();
@@ -37,14 +51,26 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const [ingredientsData, recipesData] = await Promise.all([
+      const [ingredientsData, recipesData, categoriesData, productsData] = await Promise.all([
         api.fetchIngredients(),
         api.fetchRecipes(),
+        api.fetchCategories(),
+        api.fetchProducts(),
       ]);
       setIngredients(ingredientsData);
       setRecipes(recipesData);
+      setCategories(categoriesData);
+      setProducts(productsData);
+      const [metricsData, movementsData, locationsData] = await Promise.all([
+        api.fetchDashboardMetrics(),
+        api.fetchMovements(),
+        api.fetchLocations(),
+      ]);
+      setDashboardMetrics(metricsData);
+      setMovements(movementsData);
+      setLocations(locationsData);
     } catch (err) {
-      setError('Error al cargar los datos. Asegúrate de que el servidor API esté ejecutándose en http://localhost:3000');
+      setError('Error al cargar los datos. Asegúrate de que el servidor API esté ejecutándose y accesible (proxy /api).');
       console.error(err);
     } finally {
       setLoading(false);
@@ -54,7 +80,10 @@ export default function App() {
   const handleAddIngredient = async (ingredient: Omit<Ingredient, 'id'>) => {
     try {
       const newIngredient = await api.createIngredient(ingredient);
-      setIngredients([...ingredients, newIngredient]);
+      setIngredients(current => [...current, newIngredient]);
+      const metricsData = await api.fetchDashboardMetrics();
+      setDashboardMetrics(metricsData);
+      setMovements(await api.fetchMovements());
       toast.success('Ingrediente guardado. Copia de seguridad creada.');
     } catch (err) {
       console.error('Error adding ingredient:', err);
@@ -65,7 +94,10 @@ export default function App() {
   const handleUpdateIngredient = async (id: string, ingredient: Partial<Ingredient>) => {
     try {
       const updated = await api.updateIngredient(id, ingredient);
-      setIngredients(ingredients.map(i => i.id === id ? updated : i));
+      setIngredients(current => current.map(i => i.id === id ? updated : i));
+      const metricsData = await api.fetchDashboardMetrics();
+      setDashboardMetrics(metricsData);
+      setMovements(await api.fetchMovements());
       toast.success('Ingrediente actualizado. Copia de seguridad creada.');
     } catch (err) {
       console.error('Error updating ingredient:', err);
@@ -78,11 +110,29 @@ export default function App() {
 
     try {
       await api.deleteIngredient(id);
-      setIngredients(ingredients.filter(i => i.id !== id));
+      setIngredients(current => current.filter(i => i.id !== id));
+      const metricsData = await api.fetchDashboardMetrics();
+      setDashboardMetrics(metricsData);
+      setMovements(await api.fetchMovements());
       toast.success('Ingrediente eliminado. Copia de seguridad creada.');
     } catch (err) {
       console.error('Error deleting ingredient:', err);
       alert('Error al eliminar el ingrediente');
+    }
+  };
+
+  const handleBulkImport = async (importedList: any[]) => {
+    try {
+      const response = await api.bulkImportIngredients(importedList);
+      if (response.errors && response.errors.length > 0) {
+        toast.warning(`Importación con advertencias: ${response.errors.join(', ')}`);
+      } else {
+        toast.success(`Se importaron ${response.data.length} ingredientes con éxito.`);
+      }
+      await loadData();
+    } catch (err: any) {
+      console.error('Error importing ingredients:', err);
+      toast.error(`Error al importar ingredientes: ${err.message}`);
     }
   };
 
@@ -110,7 +160,6 @@ export default function App() {
 
   const handleDeleteRecipe = async (id: string) => {
     if (!confirm('¿Estás seguro de eliminar esta receta?')) return;
-
     try {
       await api.deleteRecipe(id);
       setRecipes(recipes.filter(r => r.id !== id));
@@ -118,6 +167,63 @@ export default function App() {
     } catch (err) {
       console.error('Error deleting recipe:', err);
       alert('Error al eliminar la receta');
+    }
+  };
+
+  const handleAddProduct = async (product: any) => {
+    try {
+      await api.createProduct(product);
+      await loadData();
+      toast.success('Producto comercial guardado con éxito.');
+    } catch (err: any) {
+      console.error('Error adding product:', err);
+      toast.error(`Error al agregar el producto: ${err.message}`);
+    }
+  };
+
+  const handleUpdateProduct = async (id: string, product: any) => {
+    try {
+      await api.updateProduct(id, product);
+      await loadData();
+      toast.success('Producto comercial actualizado con éxito.');
+    } catch (err: any) {
+      console.error('Error updating product:', err);
+      toast.error(`Error al actualizar el producto: ${err.message}`);
+    }
+  };
+
+  const handleDeleteProduct = async (id: string) => {
+    if (!confirm('¿Estás seguro de eliminar este producto y todas sus variantes comerciales?')) return;
+    try {
+      await api.deleteProduct(id);
+      await loadData();
+      toast.success('Producto comercial eliminado.');
+    } catch (err: any) {
+      console.error('Error deleting product:', err);
+      toast.error(`Error al eliminar el producto: ${err.message}`);
+    }
+  };
+
+  const handleCreateVariant = async (productId: string, variant: any) => {
+    try {
+      await api.createVariant(productId, variant);
+      await loadData();
+      toast.success('Variante comercial creada con éxito.');
+    } catch (err: any) {
+      console.error('Error creating variant:', err);
+      toast.error(`Error al crear la variante: ${err.message}`);
+    }
+  };
+
+  const handleDeleteVariant = async (id: string) => {
+    if (!confirm('¿Estás seguro de eliminar esta variante comercial?')) return;
+    try {
+      await api.deleteVariant(id);
+      await loadData();
+      toast.success('Variante comercial eliminada.');
+    } catch (err: any) {
+      console.error('Error deleting variant:', err);
+      toast.error(`Error al eliminar la variante: ${err.message}`);
     }
   };
 
@@ -129,7 +235,6 @@ export default function App() {
     { id: 'dashboard' as Tab, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'inventory' as Tab, label: 'Inventario', icon: Package },
     { id: 'calculator' as Tab, label: 'Calculadora', icon: CalcIcon },
-    { id: 'recipes' as Tab, label: 'Recetas', icon: BookOpen },
     { id: 'facturacion' as Tab, label: 'Facturación', icon: BadgeDollarSign },
   ];
 
@@ -203,12 +308,81 @@ export default function App() {
             <div className="space-y-1">
               {tabs.map(tab => {
                 const Icon = tab.icon;
-                const isActive = activeTab === tab.id;
+                const isFacturacionTab = tab.id === 'facturacion';
+                const isPartOfFacturacion = activeTab.startsWith('facturacion');
+                const isActive = isFacturacionTab ? isPartOfFacturacion : activeTab === tab.id;
+
+                if (isFacturacionTab) {
+                  return (
+                    <div key={tab.id} className="space-y-1">
+                      <button
+                        onClick={() => {
+                          setFacturacionMenuOpen(!facturacionMenuOpen);
+                          if (!isPartOfFacturacion) {
+                            setActiveTab('facturacion');
+                          }
+                        }}
+                        className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition-all cursor-pointer ${
+                          isActive
+                            ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200 font-bold'
+                            : 'text-slate-600 hover:bg-sky-50 hover:text-slate-900'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <Icon className="h-5 w-5 shrink-0" />
+                          {sidebarOpen && <span className="font-medium">{tab.label}</span>}
+                        </div>
+                        {sidebarOpen && (
+                          <svg
+                            className={`h-4 w-4 shrink-0 transition-transform duration-200 text-slate-400 ${facturacionMenuOpen ? 'rotate-180' : ''}`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        )}
+                      </button>
+
+                      {/* Dropdown Items */}
+                      {facturacionMenuOpen && sidebarOpen && (
+                        <div className="pl-6 pr-2 py-1 space-y-1 bg-slate-50/50 rounded-2xl border border-slate-100/50 animate-fadeIn">
+                          <button
+                            onClick={() => setActiveTab('facturacion')}
+                            className={`flex w-full items-center gap-2 px-3 py-2 rounded-xl text-left text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+                              activeTab === 'facturacion'
+                                ? 'text-rose-600 bg-rose-50/40 font-bold'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                          >
+                            <span className="h-1.5 w-1.5 rounded-full bg-rose-400 shrink-0" />
+                            Caja POS / Boleta
+                          </button>
+                          
+                          <button
+                            onClick={() => setActiveTab('facturacion-historial')}
+                            className={`flex w-full items-center gap-2 px-3 py-2 rounded-xl text-left text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+                              activeTab === 'facturacion-historial'
+                                ? 'text-rose-600 bg-rose-50/40 font-bold'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                          >
+                            <span className="h-1.5 w-1.5 rounded-full bg-sky-400 shrink-0" />
+                            Historial de Ventas
+                          </button>
+
+
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
                 return (
                   <button
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id)}
-                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-all ${
+                    className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition-all cursor-pointer ${
                       isActive
                         ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
                         : 'text-slate-600 hover:bg-sky-50 hover:text-slate-900'
@@ -236,30 +410,54 @@ export default function App() {
           <main className="flex-1 overflow-auto">
             <div className="container mx-auto px-4 py-6">
               {activeTab === 'dashboard' && (
-                <Dashboard ingredients={ingredients} recipes={recipes} />
+                <Dashboard ingredients={ingredients} recipes={recipes} metrics={dashboardMetrics} onNavigate={setActiveTab} />
               )}
               {activeTab === 'inventory' && (
                 <Inventory
                   ingredients={ingredients}
+                  movements={movements}
+                  locations={locations}
+                  categories={categories}
                   onAdd={handleAddIngredient}
                   onUpdate={handleUpdateIngredient}
                   onDelete={handleDeleteIngredient}
+                  onBulkImport={handleBulkImport}
                 />
               )}
               {activeTab === 'calculator' && (
-                <Calculator recipes={recipes} onCalculate={handleCalculate} />
+                <Calculator
+                  recipes={recipes}
+                  products={products}
+                  ingredients={ingredients}
+                  categories={categories}
+                  onCalculate={handleCalculate}
+                  onNavigate={setActiveTab}
+                />
               )}
               {activeTab === 'recipes' && (
                 <Recipes
                   recipes={recipes}
                   ingredients={ingredients}
+                  products={products}
+                  categories={categories}
                   onCreate={handleAddRecipe}
                   onUpdate={handleUpdateRecipe}
                   onDelete={handleDeleteRecipe}
+                  onCreateProduct={handleAddProduct}
+                  onUpdateProduct={handleUpdateProduct}
+                  onDeleteProduct={handleDeleteProduct}
+                  onCreateVariant={handleCreateVariant}
+                  onDeleteVariant={handleDeleteVariant}
                 />
               )}
               {activeTab === 'facturacion' && (
-                <Facturacion />
+                <Facturacion onSaleComplete={loadData} />
+              )}
+              {activeTab === 'facturacion-historial' && (
+                <HistorialVentas />
+              )}
+              {activeTab === 'facturacion-ganancias' && (
+                <Ganancias />
               )}
             </div>
           </main>

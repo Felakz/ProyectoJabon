@@ -2,172 +2,132 @@
 
 :root {
   --font-size: 16px;
-  --background: #ffffff;
-  --foreground: oklch(0.145 0 0);
+  --background: #fffcfd; /* extremadamente suave blush rosado */
+  --foreground: #2d1d20; /* tono café-morado muy profundo y cómodo para los ojos */
   --card: #ffffff;
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: #0f766e;
+  --card-foreground: #2d1d20;
+  --popover: #ffffff;
+  --popover-foreground: #2d1d20;
+  --primary: #e05a76; /* Rosa pastel/coral premium sumamente agradable */
   --primary-foreground: #ffffff;
-  --secondary: #7dd3fc;
-  --secondary-foreground: #030213;
-  --muted: #ececf0;
-  --muted-foreground: #717182;
-  --accent: #ffd7e2;
-  --accent-foreground: #030213;
-  --destructive: #d4183d;
+  --secondary: #ffd6dc; /* rosa pastel suave */
+  --secondary-foreground: #2d1d20;
+  --muted: #fbf2f4; /* gris rosáceo sumamente cómodo */
+  --muted-foreground: #7d6b6e; /* gris-marrón suave */
+  --accent: #ffe4e6;
+  --accent-foreground: #822034;
+  --destructive: #db3a55;
   --destructive-foreground: #ffffff;
-  --border: rgba(0, 0, 0, 0.1);
+  --border: rgba(224, 90, 118, 0.12); /* bordes rosa-pastel sumamente finos */
   --input: transparent;
-  --input-background: #f3f3f5;
-  --switch-background: #cbced4;
+  --input-background: #fff9fa;
+  --switch-background: #e2d1d4;
   --font-weight-medium: 500;
   --font-weight-normal: 400;
-  --ring: oklch(0.708 0 0);
+  --ring: rgba(224, 90, 118, 0.3);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
+  --radius: 0.85rem; /* bordes más redondeados y elegantes */
   --sidebar: #ffffff;
-  --sidebar-foreground: #0f172a;
-  --sidebar-primary: #0f766e;
+  --sidebar-foreground: #2d1d20;
+  --sidebar-primary: #e05a76;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #fce7f3;
-  --sidebar-accent-foreground: #7c3aed;
-  --sidebar-border: rgba(15,23,42,0.06);
-  --sidebar-ring: #c7f9ed;
+  --sidebar-accent: #ffe4e6;
+  --sidebar-accent-foreground: #be185d;
+  --sidebar-border: rgba(224, 90, 118, 0.06);
+  --sidebar-ring: rgba(224, 90, 118, 0.2);
 }
 
-/* Print rules: show only the invoice and make it A4-friendly */
+/* ═══════════════════════════════════════════════
+   REGLAS DE IMPRESIÓN
+   La boleta impresa se ve IGUAL que en pantalla.
+   Solo se oculta la interfaz de la app.
+   ═══════════════════════════════════════════════ */
 @media print {
-  /* hide everything first */
+
+  /* 1. Ocultar TODA la interfaz de la app */
   body * {
     visibility: hidden !important;
   }
 
-  /* make invoice visible */
-  .printable-invoice, .printable-invoice * {
+  /* 2. Mostrar únicamente el componente de boleta */
+  .printable-invoice,
+  .printable-invoice * {
     visibility: visible !important;
   }
 
-  /* position invoice at top-left and use full width */
+  /* 3. Posicionar la boleta al inicio de la página impresa */
   .printable-invoice {
-    position: absolute !important;
+    position: fixed !important;
     left: 0 !important;
     top: 0 !important;
     width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
     box-shadow: none !important;
+    border: none !important;
     border-radius: 0 !important;
     background: #fff !important;
-    -webkit-print-color-adjust: exact;
-    color-adjust: exact;
+    /* Forzar colores rosas pastel en papel */
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
   }
 
-  /* hide the app chrome explicitly */
-  aside, footer, nav, header, .container > :not(.printable-invoice) {
+  /* 4. Ocultar navegación, sidebars, formularios y banners */
+  aside,
+  footer,
+  nav,
+  header,
+  .no-print,
+  [class*="no-print"] {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* 5. Ocultar aviso de borrador al imprimir */
+  .printable-invoice .bg-amber-50 {
     display: none !important;
   }
 
-  /* Page setup */
-  @page {
-    size: A4;
-    margin: 8mm;
-  }
-
-  /* simplify visuals for printing */
-  .printable-invoice .rounded-2xl,
-  .printable-invoice .rounded-xl {
-    border-radius: 0 !important;
-    box-shadow: none !important;
-  }
-
-  /* Reduce typography and spacing so content fits in one A4 page */
-  .printable-invoice {
-    font-size: 11px !important;
-    line-height: 1.15 !important;
-    max-width: 182mm !important;
-    padding: 4mm !important;
-    transform: scale(0.98);
-    transform-origin: top left;
-  }
-
-  .printable-invoice img {
-    max-width: 60px !important;
-    height: auto !important;
-  }
-
-  /* Reduce paddings used by Tailwind utility classes inside invoice */
-  .printable-invoice .p-6 { padding: 6px !important; }
-  .printable-invoice .px-4 { padding-left: 6px !important; padding-right: 6px !important; }
-  .printable-invoice .py-3 { padding-top: 4px !important; padding-bottom: 4px !important; }
-  .printable-invoice .px-3 { padding-left: 6px !important; padding-right: 6px !important; }
-  .printable-invoice .py-2 { padding-top: 4px !important; padding-bottom: 4px !important; }
-
-  .printable-invoice table { font-size: 10px !important; }
-  .printable-invoice th, .printable-invoice td { padding: 4px 6px !important; }
-
-  /* Reduce header block height */
-  .printable-invoice .h-24, .printable-invoice .w-24 { height: 48px !important; width: 48px !important; }
-
-  /* Try to avoid page-breaks inside important sections */
-  .printable-invoice .border, .printable-invoice .rounded-xl { page-break-inside: avoid !important; }
-
-  /* Reduce gaps and force compact grid rows to avoid pushing totals to next page */
-  .printable-invoice .grid { gap: 4px !important; }
-  .printable-invoice .p-4 { padding: 4px !important; }
-  .printable-invoice .p-6 { padding: 6px !important; }
-  .printable-invoice .mt-3 { margin-top: 6px !important; }
-  .printable-invoice .mb-3 { margin-bottom: 6px !important; }
-
-  /* Ensure totals box stays with related content */
-  .printable-invoice .totals-box { page-break-inside: avoid !important; break-inside: avoid !important; }
-
-  /* Optional: uncomment to force landscape if you prefer wider layout */
-  /* @page { size: A4 landscape; margin: 10mm; } */
-
-  /* avoid row breaks inside table rows */
-  table {
-    page-break-inside: auto !important;
-  }
-
-  tr {
-    page-break-inside: avoid !important;
-    page-break-after: auto !important;
-  }
-
-  /* hide interactive elements */
+  /* 6. Ocultar botones e inputs dentro de la boleta */
   .printable-invoice button,
   .printable-invoice input,
   .printable-invoice select {
     display: none !important;
   }
+
+  /* 7. Configuración de página A4 */
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
 }
 
+
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.145 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.145 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: oklch(0.269 0 0);
-  --input: oklch(0.269 0 0);
-  --ring: oklch(0.439 0 0);
+  --background: #180d10; /* plum-black profundo sumamente relajante */
+  --foreground: #fcedf0; /* crema-rosa suave */
+  --card: #201115;
+  --card-foreground: #fcedf0;
+  --popover: #201115;
+  --popover-foreground: #fcedf0;
+  --primary: #f890a4; /* rosa brillante pastel */
+  --primary-foreground: #180d10;
+  --secondary: #4a2129;
+  --secondary-foreground: #fcedf0;
+  --muted: #2c161a;
+  --muted-foreground: #c2a7ab;
+  --accent: #3a1920;
+  --accent-foreground: #f890a4;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: rgba(248, 144, 164, 0.15);
+  --input: rgba(248, 144, 164, 0.1);
+  --ring: rgba(248, 144, 164, 0.4);
   --font-weight-medium: 500;
   --font-weight-normal: 400;
   --chart-1: oklch(0.488 0.243 264.376);
@@ -175,14 +135,14 @@
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
-  --sidebar-ring: oklch(0.439 0 0);
+  --sidebar: #1d0f12;
+  --sidebar-foreground: #fcedf0;
+  --sidebar-primary: #f890a4;
+  --sidebar-primary-foreground: #180d10;
+  --sidebar-accent: #2c161a;
+  --sidebar-accent-foreground: #fcedf0;
+  --sidebar-border: rgba(248, 144, 164, 0.08);
+  --sidebar-ring: rgba(248, 144, 164, 0.3);
 }
 
 @theme inline {
@@ -224,6 +184,38 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Curated Soft Pastels Palettes */
+  --color-rose-50: #fff5f6;
+  --color-rose-100: #ffebee;
+  --color-rose-200: #ffd6dc;
+  --color-rose-300: #ffaebc;
+  --color-rose-400: #f78b9f;
+  --color-rose-500: #e05a76;
+  --color-rose-600: #c4405c;
+  --color-rose-700: #a32d46;
+  --color-rose-800: #822034;
+  --color-rose-900: #611524;
+
+  --color-pink-50: #fff7f8;
+  --color-pink-100: #ffeef0;
+  --color-pink-200: #ffdce0;
+  --color-pink-300: #ffbac3;
+  --color-pink-400: #f98b9a;
+  --color-pink-500: #e35a6f;
+  --color-pink-600: #c94054;
+  --color-pink-700: #a92f41;
+
+  --color-emerald-50: #f0fbf7;
+  --color-emerald-100: #dcf7ec;
+  --color-emerald-200: #b3ebd6;
+  --color-emerald-300: #82dcba;
+  --color-emerald-400: #54c79e;
+  --color-emerald-500: #33a67d;
+  --color-emerald-600: #258563;
+  --color-emerald-700: #1d684e;
+  --color-emerald-800: #17533f;
+  --color-emerald-900: #114030;
 }
 
 @layer base {
@@ -233,6 +225,7 @@
 
   body {
     @apply bg-background text-foreground;
+    font-family: 'Plus Jakarta Sans', sans-serif;
   }
 
   /**
@@ -244,27 +237,28 @@
     font-size: var(--font-size);
   }
 
+  h1, h2, h3, h4 {
+    font-family: 'Quicksand', sans-serif;
+    font-weight: 700 !important;
+  }
+
   h1 {
     font-size: var(--text-2xl);
-    font-weight: var(--font-weight-medium);
     line-height: 1.5;
   }
 
   h2 {
     font-size: var(--text-xl);
-    font-weight: var(--font-weight-medium);
     line-height: 1.5;
   }
 
   h3 {
     font-size: var(--text-lg);
-    font-weight: var(--font-weight-medium);
     line-height: 1.5;
   }
 
   h4 {
     font-size: var(--text-base);
-    font-weight: var(--font-weight-medium);
     line-height: 1.5;
   }
 
@@ -280,7 +274,7 @@
     line-height: 1.5;
   }
 
-  input {
+  input, select, textarea {
     font-size: var(--text-base);
     font-weight: var(--font-weight-normal);
     line-height: 1.5;

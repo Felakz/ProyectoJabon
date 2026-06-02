@@ -24,6 +24,9 @@ export interface Ingredient {
 
   /** Índice de saponificación (SAP value) - mg de KOH por gramo de aceite */
   sapValue: number;
+
+  /** ID de la categoría a la que pertenece el ingrediente */
+  categoryId?: string;
 }
 
 /**
@@ -189,3 +192,61 @@ export interface CalculationResponse {
   /** Mensaje de error (si aplica) */
   error?: string;
 }
+
+/**
+ * Representa una categoría general (para ingredientes, productos, o transacciones)
+ */
+export interface Category {
+  id: string;
+  name: string;
+  description: string;
+  type: 'ingredient' | 'product' | 'transaction';
+}
+
+/**
+ * Representa una transacción financiera (ingresos, egresos, inversiones)
+ */
+export interface Transaction {
+  id: string;
+  type: 'income' | 'expense' | 'investment';
+  amount: number;
+  description: string;
+  date: string;
+  categoryId?: string;
+  referenceId?: string; // ID relacionado (ej. factura, movimiento, producto)
+}
+
+/**
+ * Representa un Producto Final derivado de una receta
+ */
+export interface Product {
+  id: string;
+  name: string;
+  description: string;
+  categoryId?: string;
+  baseRecipeId: string;
+}
+
+/**
+ * Representa una Variante de un Producto (ej. Jabón de 100g)
+ */
+export interface ProductVariant {
+  id: string;
+  productId: string;
+  weight: number;
+  sku: string;
+  price: number;
+  stock: number;
+}
+
+/**
+ * Representa un Paquete (Pack) de variantes (ej. Pack de 3 jabones)
+ */
+export interface ProductPack {
+  id: string;
+  variantId: string;
+  unitCount: number;
+  price: number;
+  sku: string;
+}
+
