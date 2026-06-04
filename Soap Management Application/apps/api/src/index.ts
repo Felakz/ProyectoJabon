@@ -53,6 +53,14 @@ import {
   deleteVariant,
   sellBatchVariants,
 } from './controllers/product.controller';
+import { calculateBatchCostWithLabor, fabricarLote, fabricarLoteInteractivo } from './controllers/production.controller';
+import {
+  getAllFinishedProducts,
+  getFinishedProductById,
+  createFinishedProduct,
+  updateFinishedProduct,
+  deleteFinishedProduct,
+} from './controllers/finished-product.controller';
 import { init as initDatabase } from './db/sqlite';
 
 const app: Application = express();
@@ -99,6 +107,11 @@ app.post('/api/calculator/calculate', processSoapCalculation);
 app.post('/api/calculator/financial-summary', getFinancialSummary);
 app.post('/api/calculator/validate-recipe', validateRecipe);
 
+// Rutas de Producción
+app.post('/api/production/calculate', calculateBatchCostWithLabor);
+app.post('/api/production/make-batch', fabricarLote);
+app.post('/api/production/make-batch-interactive', fabricarLoteInteractivo);
+
 // Rutas del dashboard
 app.get('/api/metrics', getDashboardMetrics);
 
@@ -132,6 +145,13 @@ app.post('/api/products/:productId/variants', createVariant);
 app.put('/api/variants/:id', updateVariant);
 app.delete('/api/variants/:id', deleteVariant);
 app.post('/api/products/sell-batch', sellBatchVariants);
+
+// Rutas de Productos Terminados (Almacén Final)
+app.get('/api/finished-products', getAllFinishedProducts);
+app.get('/api/finished-products/:id', getFinishedProductById);
+app.post('/api/finished-products', createFinishedProduct);
+app.put('/api/finished-products/:id', updateFinishedProduct);
+app.delete('/api/finished-products/:id', deleteFinishedProduct);
 
 // Manejo de rutas no encontradas
 app.use((req: Request, res: Response) => {

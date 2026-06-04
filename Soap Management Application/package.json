@@ -7,9 +7,9 @@
     "dev": "vite --host 0.0.0.0 --port 1402 --strictPort",
     "build": "vite build",
     "preview": "vite preview",
-    "api:dev": "cd apps/api && pnpm dev",
-    "api:build": "cd apps/api && pnpm build",
-    "type-check": "tsc --noEmit && cd packages/shared && pnpm type-check && cd ../../apps/api && pnpm type-check"
+    "api:dev": "cd apps/api && npm run dev",
+    "api:build": "cd apps/api && npm run build",
+    "type-check": "tsc --noEmit && cd packages/shared && npm run type-check && cd ../../apps/api && npm run type-check"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

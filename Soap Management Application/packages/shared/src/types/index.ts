@@ -250,3 +250,85 @@ export interface ProductPack {
   sku: string;
 }
 
+/**
+ * Representa un Producto Terminado en el Almacén Final (minimalista)
+ */
+export interface FinishedProduct {
+  id: string;
+  name: string;      // ej: "Jabón de Carbón Activado - 50g"
+  stock: number;     // unidades físicas
+  price: number;     // PVP final sugerido o establecido
+}
+
+/**
+ * Representa un lote de producción registrado
+ */
+export interface ProductionBatch {
+  id: string;
+  recipeId: string;
+  totalGramsProduced: number;
+  rawMaterialCost: number;
+  laborCost: number;
+  totalProductionCost: number;
+  createdAt: string;
+}
+
+/**
+ * Representa el desglose físico resultante de un lote de producción
+ */
+export interface ProductionBatchOutput {
+  id: string;
+  batchId: string;
+  finishedProductId: string;
+  quantity: number;
+}
+
+/**
+ * Datos para calcular los costos de producción de un lote
+ */
+export interface ProductionCalculationRequest {
+  recipeId: string;
+  totalGrams: number;
+  laborCost?: number;     // Opcional, si no se pasa usa el defaultLaborCost de la receta
+  gainFactor?: number;    // Opcional, por defecto 3.5 a 4
+}
+
+/**
+ * Resultado detallado del costeo de producción
+ */
+export interface ProductionCalculationResponse {
+  recipeId: string;
+  recipeName: string;
+  totalGrams: number;
+  ingredients: Array<{
+    id: string;
+    name: string;
+    percentage: number;
+    gramsNeeded: number;
+    costPerGram: number;
+    subtotalCost: number;
+    availableStock: number;
+    hasEnoughStock: boolean;
+  }>;
+  rawMaterialCost: number;
+  laborCost: number;
+  totalProductionCost: number;
+  suggestedPvpPerGram: number;
+  canProduce: boolean;
+}
+
+/**
+ * Datos para ejecutar la transacción de Fabricar Lote
+ */
+export interface MakeBatchRequest {
+  recipeId: string;
+  totalGrams: number;
+  laborCost: number;
+  outputs: Array<{
+    name: string;       // Nombre del producto final, ej: "Jabón de Avena - 100g"
+    quantity: number;   // Cantidad de unidades físicas
+    price: number;      // PVP final establecido
+  }>;
+}
+
+

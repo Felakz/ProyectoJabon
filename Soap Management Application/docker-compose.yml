@@ -7,6 +7,7 @@ services:
     container_name: jabon_api
     environment:
       - NODE_ENV=production
+      - PORT=3000
     ports:
       - "3000:3000"
     volumes:
@@ -18,7 +19,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: http://api:803
+        VITE_API_URL: /api
     container_name: jabon_web
     ports:
       - "80:80"

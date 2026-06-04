@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, Package, Calculator as CalcIcon, BookOpen, Sparkles, BadgeDollarSign, Menu } from 'lucide-react';
+import { LayoutDashboard, Package, Calculator as CalcIcon, BookOpen, Sparkles, BadgeDollarSign, Menu, Factory } from 'lucide-react';
 import logoSrc from '../assets/logo.png';
 import { Dashboard } from './components/Dashboard';
 import { Inventory } from './components/Inventory';
@@ -8,14 +8,16 @@ import { Recipes } from './components/Recipes';
 import { Facturacion } from './components/Facturacion';
 import { HistorialVentas } from './components/HistorialVentas';
 import { Ganancias } from './components/Ganancias';
-import { api, type Ingredient, type Recipe, type RecipeInput, type CalculationRequest, type DashboardMetricsResponse, type InventoryMovement, type InventoryLocation, type Category, type Product } from './services/api';
+import { Production } from './components/Production';
+import { api, type Ingredient, type Recipe, type RecipeInput, type CalculationRequest, type DashboardMetricsResponse, type InventoryMovement, type InventoryLocation, type Category, type FinishedProduct } from './services/api';
 import { toast } from 'sonner';
 
-type Tab = 'dashboard' | 'inventory' | 'calculator' | 'recipes' | 'facturacion' | 'facturacion-historial' | 'facturacion-ganancias';
+type Tab = 'dashboard' | 'inventory' | 'calculator' | 'recipes' | 'production' | 'facturacion' | 'facturacion-historial' | 'facturacion-ganancias';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [inventoryMenuOpen, setInventoryMenuOpen] = useState(false);
   const [facturacionMenuOpen, setFacturacionMenuOpen] = useState(false);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -23,12 +25,14 @@ export default function App() {
   const [movements, setMovements] = useState<InventoryMovement[]>([]);
   const [locations, setLocations] = useState<InventoryLocation[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<FinishedProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (activeTab.startsWith('facturacion')) {
+    if (activeTab === 'inventory' || activeTab === 'production') {
+      setInventoryMenuOpen(true);
+    } else if (activeTab.startsWith('facturacion')) {
       setFacturacionMenuOpen(true);
     }
   }, [activeTab]);
@@ -234,6 +238,7 @@ export default function App() {
   const tabs = [
     { id: 'dashboard' as Tab, label: 'Dashboard', icon: LayoutDashboard },
     { id: 'inventory' as Tab, label: 'Inventario', icon: Package },
+    { id: 'production' as Tab, label: 'Producción', icon: Factory },
     { id: 'calculator' as Tab, label: 'Calculadora', icon: CalcIcon },
     { id: 'facturacion' as Tab, label: 'Facturación', icon: BadgeDollarSign },
   ];
@@ -271,22 +276,22 @@ export default function App() {
     <div className="size-full bg-gradient-to-br from-rose-50 via-white to-sky-50 overflow-hidden">
       <div className="flex size-full flex-col md:flex-row">
         <aside className={`border-b md:border-b-0 md:border-r border-pink-100 bg-white/90 backdrop-blur shadow-sm transition-all duration-200 ${sidebarOpen ? 'md:w-72' : 'md:w-20'}`}>
-          <div className="flex items-center justify-between gap-3 px-4 py-4 border-b border-pink-100">
+          <div className={`flex ${sidebarOpen ? 'flex-row justify-between items-center' : 'flex-col items-center gap-3'} px-4 py-4 border-b border-pink-100`}>
             <div className="flex items-center gap-3 min-w-0">
-                <div className={`p-1 rounded-xl shrink-0 ${sidebarOpen ? 'bg-gradient-to-r from-rose-400 to-sky-400' : 'bg-white'} ${sidebarOpen ? '' : 'flex items-center justify-center shadow-sm'}`}>
-                  <img src={logoSrc} alt="Angely Natural" className={`${sidebarOpen ? 'h-8 w-8 object-contain' : 'h-10 w-10 object-contain'}`} />
-                </div>
-                {sidebarOpen && (
-                  <div className="min-w-0">
-                    <h1 className="font-bold text-base truncate text-slate-800">Angely Natural</h1>
-                    <p className="text-xs text-slate-500 truncate">Formulación y facturación</p>
-                  </div>
-                )}
+              <div className="shrink-0">
+                <img src={logoSrc} alt="Angely Natural" className="h-11 w-11 object-contain" />
               </div>
+              {sidebarOpen && (
+                <div className="min-w-0">
+                  <h1 className="font-bold text-base truncate text-slate-800">Angely Natural</h1>
+                  <p className="text-xs text-slate-500 truncate">Formulación y facturación</p>
+                </div>
+              )}
+            </div>
             <button
               type="button"
               onClick={() => setSidebarOpen((open) => !open)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-pink-100 bg-white text-slate-700 hover:bg-rose-50"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-pink-100 bg-white text-slate-700 hover:bg-rose-50 shrink-0"
               aria-label="Alternar sidebar"
             >
               <Menu className="h-4 w-4" />
@@ -311,6 +316,76 @@ export default function App() {
                 const isFacturacionTab = tab.id === 'facturacion';
                 const isPartOfFacturacion = activeTab.startsWith('facturacion');
                 const isActive = isFacturacionTab ? isPartOfFacturacion : activeTab === tab.id;
+
+                if (tab.id === 'production') {
+                  // Omitir ya que estará agrupado dentro del dropdown de Inventario
+                  return null;
+                }
+
+                if (tab.id === 'inventory') {
+                  const isPartOfInventory = activeTab === 'inventory' || activeTab === 'production';
+                  return (
+                    <div key={tab.id} className="space-y-1">
+                      <button
+                        onClick={() => {
+                          setInventoryMenuOpen(!inventoryMenuOpen);
+                          if (!isPartOfInventory) {
+                            setActiveTab('inventory');
+                          }
+                        }}
+                        className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-3 text-left transition-all cursor-pointer ${
+                          isPartOfInventory
+                            ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200 font-bold'
+                            : 'text-slate-600 hover:bg-sky-50 hover:text-slate-900'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <Icon className="h-5 w-5 shrink-0" />
+                          {sidebarOpen && <span className="font-medium">{tab.label}</span>}
+                        </div>
+                        {sidebarOpen && (
+                          <svg
+                            className={`h-4 w-4 shrink-0 transition-transform duration-200 text-slate-400 ${inventoryMenuOpen ? 'rotate-180' : ''}`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        )}
+                      </button>
+
+                      {/* Dropdown Items */}
+                      {inventoryMenuOpen && sidebarOpen && (
+                        <div className="pl-6 pr-2 py-1 space-y-1 bg-slate-50/50 rounded-2xl border border-slate-100/50 animate-fadeIn">
+                          <button
+                            onClick={() => setActiveTab('inventory')}
+                            className={`flex w-full items-center gap-2 px-3 py-2 rounded-xl text-left text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+                              activeTab === 'inventory'
+                                ? 'text-rose-600 bg-rose-50/40 font-bold'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                          >
+                            <span className="h-1.5 w-1.5 rounded-full bg-rose-400 shrink-0" />
+                            Control de Inventario
+                          </button>
+                          
+                          <button
+                            onClick={() => setActiveTab('production')}
+                            className={`flex w-full items-center gap-2 px-3 py-2 rounded-xl text-left text-xs font-semibold tracking-wide transition-all cursor-pointer ${
+                              activeTab === 'production'
+                                ? 'text-rose-600 bg-rose-50/40 font-bold'
+                                : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                          >
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
+                            Producción
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
 
                 if (isFacturacionTab) {
                   return (
@@ -415,6 +490,7 @@ export default function App() {
               {activeTab === 'inventory' && (
                 <Inventory
                   ingredients={ingredients}
+                  products={products}
                   movements={movements}
                   locations={locations}
                   categories={categories}
@@ -422,6 +498,15 @@ export default function App() {
                   onUpdate={handleUpdateIngredient}
                   onDelete={handleDeleteIngredient}
                   onBulkImport={handleBulkImport}
+                  onAddProduct={handleAddProduct}
+                  onUpdateProduct={handleUpdateProduct}
+                  onDeleteProduct={handleDeleteProduct}
+                />
+              )}
+              {activeTab === 'production' && (
+                <Production
+                  ingredients={ingredients}
+                  onProductionComplete={loadData}
                 />
               )}
               {activeTab === 'calculator' && (
@@ -438,16 +523,10 @@ export default function App() {
                 <Recipes
                   recipes={recipes}
                   ingredients={ingredients}
-                  products={products}
                   categories={categories}
                   onCreate={handleAddRecipe}
                   onUpdate={handleUpdateRecipe}
                   onDelete={handleDeleteRecipe}
-                  onCreateProduct={handleAddProduct}
-                  onUpdateProduct={handleUpdateProduct}
-                  onDeleteProduct={handleDeleteProduct}
-                  onCreateVariant={handleCreateVariant}
-                  onDeleteVariant={handleDeleteVariant}
                 />
               )}
               {activeTab === 'facturacion' && (

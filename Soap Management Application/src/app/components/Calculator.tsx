@@ -15,14 +15,14 @@ import {
   X
 } from 'lucide-react';
 import { api } from '../services/api';
-import type { CalculationRequest, Recipe, Product, Category, Ingredient } from '../services/api';
+import type { CalculationRequest, Recipe, Category, Ingredient, FinishedProduct } from '../services/api';
 import { toast } from 'sonner';
 import { jsPDF } from 'jspdf';
 import { logoBase64 } from '../services/logoBase64';
 
 interface CalculatorProps {
   recipes: Recipe[];
-  products: Product[];
+  products: FinishedProduct[];
   ingredients: Ingredient[];
   categories: Category[];
   onCalculate: (request: CalculationRequest) => Promise<any>;
@@ -256,11 +256,8 @@ const createMultiQuotePdf = (
 };
 
 export function Calculator({ recipes, products, ingredients, categories, onCalculate, onNavigate }: CalculatorProps) {
-  // Las categorías comerciales para el dropdown (Jabones, Kits, y Esencias)
-  const productCategories = categories.filter(c => ['cat-jabon-art', 'cat-kits', 'cat-esencias'].includes(c.id));
-
   // Form State
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
+  const [productSearchTerm, setProductSearchTerm] = useState('');
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [quantity, setQuantity] = useState<number>(1);
 
@@ -281,14 +278,18 @@ export function Calculator({ recipes, products, ingredients, categories, onCalcu
   const [clientIdType, setClientIdType] = useState<'DNI' | 'RUC' | ''>('');
   const [clientIdNumber, setClientIdNumber] = useState('');
 
-  // Dropdown Filtering (Jalar productos terminados registrados en el inventario que coincidan con la categoría)
-  const filteredProducts = ingredients.filter(ing => ing.categoryId === selectedCategoryId);
-  const selectedProduct = ingredients.find(ing => ing.id === selectedProductId);
+  // Dropdown Filtering (Jalar productos terminados del Almacén Final)
+  const filteredProducts = products.filter(p => 
+    p.name.toLowerCase().includes(productSearchTerm.toLowerCase())
+  );
+  
+  const selectedProduct = products.find(p => p.id === selectedProductId);
 
-  // Clear selections on category change
-  useEffect(() => {
-    setSelectedProductId('');
-  }, [selectedCategoryId]);
+  // Helper para extraer el peso del nombre descriptivo (ej: "Jabón de Avena - 50g" -> 50)
+  const parseWeightFromName = (name: string): number => {
+    const match = name.match(/(\d+)\s*g/i);
+    return match ? parseInt(match[1]) : 0;
+  };
 
   // Handlers for Cart
   const handleAddToCart = () => {
@@ -306,10 +307,9 @@ export function Calculator({ recipes, products, ingredients, categories, onCalcu
         id: selectedProduct.id,
         name: selectedProduct.name,
         price: selectedProduct.price || 0,
-        weight: selectedProduct.weight || 0,
-        cost: selectedProduct.costPerGram || 0,
+        weight: parseWeightFromName(selectedProduct.name),
+        cost: 0,
         quantity,
-        categoryId: selectedProduct.categoryId
       };
       setCart([...cart, newItem]);
     }
@@ -371,15 +371,15 @@ export function Calculator({ recipes, products, ingredients, categories, onCalcu
 
     // Validar stock disponible para todos los productos en el carrito
     const insufficientStockItems = cart.filter(item => {
-      const invItem = ingredients.find(ing => ing.id === item.id);
-      const availableStock = invItem ? invItem.currentStock : 0;
+      const invItem = products.find(p => p.id === item.id);
+      const availableStock = invItem ? invItem.stock : 0;
       return item.quantity > availableStock;
     });
 
     if (insufficientStockItems.length > 0) {
       const modalItems = insufficientStockItems.map(item => {
-        const invItem = ingredients.find(ing => ing.id === item.id);
-        const availableStock = invItem ? invItem.currentStock : 0;
+        const invItem = products.find(p => p.id === item.id);
+        const availableStock = invItem ? invItem.stock : 0;
         return {
           name: item.name,
           requested: item.quantity,
@@ -479,46 +479,41 @@ export function Calculator({ recipes, products, ingredients, categories, onCalcu
               Selección de Productos
             </h3>
 
-            {/* Categoría */}
+            {/* Buscador de Productos */}
             <div className="space-y-1.5">
-              <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400">1. Categoría Comercial</label>
+              <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Buscar Producto</label>
+              <input
+                type="text"
+                placeholder="Filtrar por nombre..."
+                value={productSearchTerm}
+                onChange={(e) => setProductSearchTerm(e.target.value)}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-rose-500/10 focus:border-rose-500 focus:outline-none transition-all text-xs font-semibold bg-white"
+              />
+            </div>
+
+            {/* Producto Dropdown */}
+            <div className="space-y-1.5">
+              <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Seleccionar Producto</label>
               <select
-                value={selectedCategoryId}
-                onChange={(e) => setSelectedCategoryId(e.target.value)}
+                value={selectedProductId}
+                onChange={(e) => setSelectedProductId(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-rose-500/10 focus:border-rose-500 focus:outline-none transition-all text-xs font-semibold bg-white"
               >
-                <option value="">-- Seleccionar Categoría --</option>
-                {productCategories.map(cat => (
-                  <option key={cat.id} value={cat.id}>{cat.name}</option>
+                <option value="">-- Seleccionar Artículo --</option>
+                {filteredProducts.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} - {formatMoney(p.price || 0)} (Stock: {p.stock})
+                  </option>
                 ))}
               </select>
             </div>
 
-            {/* Producto */}
-            {selectedCategoryId && (
-              <div className="space-y-1.5 animate-fadeIn">
-                <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-400">2. Producto / Artículo</label>
-                <select
-                  value={selectedProductId}
-                  onChange={(e) => setSelectedProductId(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 focus:ring-2 focus:ring-rose-500/10 focus:border-rose-500 focus:outline-none transition-all text-xs font-semibold bg-white"
-                >
-                  <option value="">-- Seleccionar Artículo --</option>
-                  {filteredProducts.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} {(p.weight || 0) > 0 ? `(${p.weight}g)` : ''} - {formatMoney(p.price || 0)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
             {/* Detalles del Producto Seleccionado */}
             {selectedProductId && selectedProduct && (
               <div className="space-y-3 animate-fadeIn">
-                <div className={`rounded-xl p-2.5 flex items-center justify-between text-[11px] font-bold ${getStockBadgeClass(selectedProduct.currentStock)}`}>
+                <div className={`rounded-xl p-2.5 flex items-center justify-between text-[11px] font-bold ${getStockBadgeClass(selectedProduct.stock)}`}>
                   <span>Stock Disponible:</span>
-                  <span>{selectedProduct.currentStock.toFixed(0)} unidades</span>
+                  <span>{selectedProduct.stock} unidades</span>
                 </div>
 
                 <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-[11px] font-medium text-slate-600 grid grid-cols-2 gap-2">
@@ -528,7 +523,7 @@ export function Calculator({ recipes, products, ingredients, categories, onCalcu
                   </div>
                   <div>
                     <span className="text-[9px] text-slate-400 block font-bold">Peso Barra/Envase:</span>
-                    <span className="font-extrabold text-slate-800">{selectedProduct.weight || 0}g</span>
+                    <span className="font-extrabold text-slate-800">{parseWeightFromName(selectedProduct.name)}g</span>
                   </div>
                 </div>
 
@@ -590,8 +585,8 @@ export function Calculator({ recipes, products, ingredients, categories, onCalcu
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {cart.map((item, index) => {
-                      const invItem = ingredients.find(ing => ing.id === item.id);
-                      const availableStock = invItem ? invItem.currentStock : 0;
+                      const invItem = products.find(p => p.id === item.id);
+                      const availableStock = invItem ? invItem.stock : 0;
                       const isInsufficientStock = item.quantity > availableStock;
 
                       return (

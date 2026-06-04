@@ -39,6 +39,13 @@ export interface ProductVariant {
   stock: number;
 }
 
+export interface FinishedProduct {
+  id: string;
+  name: string;
+  stock: number;
+  price: number;
+}
+
 export interface Recipe {
   id: string;
   name: string;
@@ -299,40 +306,40 @@ class ApiService {
     return data.data;
   }
 
-  async fetchProducts(): Promise<Product[]> {
-    const response = await fetch(`${API_BASE_URL}/products`);
-    const data = await this.requestJson<{ data: Product[] }>(response);
+  async fetchProducts(): Promise<FinishedProduct[]> {
+    const response = await fetch(`${API_BASE_URL}/finished-products`);
+    const data = await this.requestJson<{ data: FinishedProduct[] }>(response);
     return data.data ?? [];
   }
 
-  async fetchProductById(id: string): Promise<Product> {
-    const response = await fetch(`${API_BASE_URL}/products/${id}`);
-    const data = await this.requestJson<{ data: Product }>(response);
+  async fetchProductById(id: string): Promise<FinishedProduct> {
+    const response = await fetch(`${API_BASE_URL}/finished-products/${id}`);
+    const data = await this.requestJson<{ data: FinishedProduct }>(response);
     return data.data;
   }
 
-  async createProduct(product: Omit<Product, 'id'> & { initialVariant?: Omit<ProductVariant, 'id' | 'productId'> }): Promise<Product> {
-    const response = await fetch(`${API_BASE_URL}/products`, {
+  async createProduct(product: Omit<FinishedProduct, 'id'>): Promise<FinishedProduct> {
+    const response = await fetch(`${API_BASE_URL}/finished-products`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(product),
     });
-    const data = await this.requestJson<{ data: Product }>(response);
+    const data = await this.requestJson<{ data: FinishedProduct }>(response);
     return data.data;
   }
 
-  async updateProduct(id: string, product: Partial<Product>): Promise<Product> {
-    const response = await fetch(`${API_BASE_URL}/products/${id}`, {
+  async updateProduct(id: string, product: Partial<FinishedProduct>): Promise<FinishedProduct> {
+    const response = await fetch(`${API_BASE_URL}/finished-products/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(product),
     });
-    const data = await this.requestJson<{ data: Product }>(response);
+    const data = await this.requestJson<{ data: FinishedProduct }>(response);
     return data.data;
   }
 
   async deleteProduct(id: string): Promise<void> {
-    await fetch(`${API_BASE_URL}/products/${id}`, {
+    await fetch(`${API_BASE_URL}/finished-products/${id}`, {
       method: 'DELETE',
     });
   }
@@ -371,6 +378,15 @@ class ApiService {
     clientAddress: string; 
   }): Promise<any> {
     const response = await fetch(`${API_BASE_URL}/products/sell-batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return this.requestJson<any>(response);
+  }
+
+  async makeInteractiveBatch(payload: any): Promise<any> {
+    const response = await fetch(`${API_BASE_URL}/production/make-batch-interactive`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),

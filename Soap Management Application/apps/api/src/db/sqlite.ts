@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import type { Ingredient, Recipe, Category, Transaction, Product, ProductVariant } from '../../../../packages/shared/src/types';
+import type { Ingredient, Recipe, Category, Transaction, Product, ProductVariant, FinishedProduct, ProductionBatch, ProductionBatchOutput } from '../../../../packages/shared/src/types';
 
 type InvoiceState = {
   series: string;
@@ -244,6 +244,42 @@ function seedIfEmpty() {
       sku TEXT NOT NULL UNIQUE,
       FOREIGN KEY (variantId) REFERENCES product_variants(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS finished_products (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      stock INTEGER NOT NULL DEFAULT 0,
+      price REAL NOT NULL DEFAULT 0
+    );
+
+    CREATE TABLE IF NOT EXISTS recipe_ingredients (
+      recipeId TEXT NOT NULL,
+      ingredientId TEXT NOT NULL,
+      percentage REAL NOT NULL,
+      PRIMARY KEY (recipeId, ingredientId),
+      FOREIGN KEY (recipeId) REFERENCES recipes(id) ON DELETE CASCADE,
+      FOREIGN KEY (ingredientId) REFERENCES ingredients(id) ON DELETE RESTRICT
+    );
+
+    CREATE TABLE IF NOT EXISTS production_batches (
+      id TEXT PRIMARY KEY,
+      recipeId TEXT,
+      totalGramsProduced REAL NOT NULL,
+      rawMaterialCost REAL NOT NULL,
+      laborCost REAL NOT NULL,
+      totalProductionCost REAL NOT NULL,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (recipeId) REFERENCES recipes(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS production_batch_outputs (
+      id TEXT PRIMARY KEY,
+      batchId TEXT NOT NULL,
+      finishedProductId TEXT NOT NULL,
+      quantity INTEGER NOT NULL,
+      FOREIGN KEY (batchId) REFERENCES production_batches(id) ON DELETE CASCADE,
+      FOREIGN KEY (finishedProductId) REFERENCES finished_products(id) ON DELETE CASCADE
+    );
   `);
 
   // 4. Migración dinámica: Verificar si la columna categoryId, price y weight existen en ingredients por si la base de datos ya existía
@@ -276,6 +312,53 @@ function seedIfEmpty() {
     } catch (e) {
       console.error("Error al añadir la columna weight a ingredients:", e);
     }
+  }
+
+  // Verificar si la columna defaultLaborCost existe en recipes
+  const recipeColumns = database.prepare("PRAGMA table_info(recipes)").all() as any[];
+  const hasDefaultLaborCost = recipeColumns.some(col => col.name === 'defaultLaborCost');
+  if (!hasDefaultLaborCost) {
+    try {
+      database.exec("ALTER TABLE recipes ADD COLUMN defaultLaborCost REAL NOT NULL DEFAULT 0;");
+      console.log("Migración exitosa: Columna defaultLaborCost añadida a la tabla recipes.");
+    } catch (e) {
+      console.error("Error al añadir la columna defaultLaborCost a recipes:", e);
+    }
+  }
+
+  // Migración de recetas de JSON a la tabla intermedia recipe_ingredients
+  try {
+    const recipeIngredientsCount = database.prepare('SELECT COUNT(*) as count FROM recipe_ingredients').get() as { count: number };
+    if (recipeIngredientsCount.count === 0) {
+      const recipesList = database.prepare('SELECT id, name, ingredients FROM recipes').all() as any[];
+      const insertRecipeIngredient = database.prepare(
+        'INSERT OR IGNORE INTO recipe_ingredients (recipeId, ingredientId, percentage) VALUES (?, ?, ?)'
+      );
+      
+      const migrateTx = database.transaction((recipesArrayInput: any[]) => {
+        for (const r of recipesArrayInput) {
+          try {
+            const ingredientsArray = JSON.parse(r.ingredients || '[]');
+            if (Array.isArray(ingredientsArray)) {
+              for (const ing of ingredientsArray) {
+                if (ing.ingredientId && ing.percentage !== undefined) {
+                  insertRecipeIngredient.run(r.id, ing.ingredientId, Number(ing.percentage));
+                }
+              }
+            }
+          } catch (err) {
+            console.error(`Error migrando ingredientes de la receta ${r.name || r.id}:`, err);
+          }
+        }
+      });
+      
+      if (recipesList.length > 0) {
+        migrateTx(recipesList);
+        console.log(`Migración de datos exitosa: Ingredientes de ${recipesList.length} recetas migrados a recipe_ingredients.`);
+      }
+    }
+  } catch (e) {
+    console.error("Error migrando ingredientes de recetas:", e);
   }
 
   // 5. Sembrar Categorías Predeterminadas
@@ -528,33 +611,61 @@ export function getRecipeById(id: string) {
 
 export function createRecipe(recipe: Recipe) {
   init();
-  getDb().prepare(
-    'INSERT INTO recipes (id, name, description, targetWeight, ingredients, overfattingPercentage, waterDiscountPercentage) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(
-    recipe.id,
-    recipe.name,
-    recipe.description,
-    recipe.targetWeight,
-    JSON.stringify(recipe.ingredients || []),
-    recipe.overfattingPercentage,
-    recipe.waterDiscountPercentage,
-  );
+  const dbInstance = getDb();
+  
+  dbInstance.transaction(() => {
+    dbInstance.prepare(
+      'INSERT INTO recipes (id, name, description, targetWeight, ingredients, overfattingPercentage, waterDiscountPercentage, defaultLaborCost) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      recipe.id,
+      recipe.name,
+      recipe.description,
+      recipe.targetWeight,
+      JSON.stringify(recipe.ingredients || []),
+      recipe.overfattingPercentage,
+      recipe.waterDiscountPercentage,
+      (recipe as any).defaultLaborCost || 0,
+    );
+
+    const insertIng = dbInstance.prepare(
+      'INSERT OR IGNORE INTO recipe_ingredients (recipeId, ingredientId, percentage) VALUES (?, ?, ?)'
+    );
+    for (const ing of recipe.ingredients || []) {
+      insertIng.run(recipe.id, ing.ingredientId, ing.percentage);
+    }
+  })(null);
+
   return getRecipeById(recipe.id);
 }
 
 export function updateRecipe(id: string, recipe: Recipe) {
   init();
-  getDb().prepare(
-    'UPDATE recipes SET name = ?, description = ?, targetWeight = ?, ingredients = ?, overfattingPercentage = ?, waterDiscountPercentage = ? WHERE id = ?'
-  ).run(
-    recipe.name,
-    recipe.description,
-    recipe.targetWeight,
-    JSON.stringify(recipe.ingredients || []),
-    recipe.overfattingPercentage,
-    recipe.waterDiscountPercentage,
-    id,
-  );
+  const dbInstance = getDb();
+
+  dbInstance.transaction(() => {
+    dbInstance.prepare(
+      'UPDATE recipes SET name = ?, description = ?, targetWeight = ?, ingredients = ?, overfattingPercentage = ?, waterDiscountPercentage = ?, defaultLaborCost = ? WHERE id = ?'
+    ).run(
+      recipe.name,
+      recipe.description,
+      recipe.targetWeight,
+      JSON.stringify(recipe.ingredients || []),
+      recipe.overfattingPercentage,
+      recipe.waterDiscountPercentage,
+      (recipe as any).defaultLaborCost || 0,
+      id,
+    );
+
+    dbInstance.prepare('DELETE FROM recipe_ingredients WHERE recipeId = ?').run(id);
+
+    const insertIng = dbInstance.prepare(
+      'INSERT OR IGNORE INTO recipe_ingredients (recipeId, ingredientId, percentage) VALUES (?, ?, ?)'
+    );
+    for (const ing of recipe.ingredients || []) {
+      insertIng.run(id, ing.ingredientId, ing.percentage);
+    }
+  })(null);
+
   return getRecipeById(id);
 }
 
@@ -846,44 +957,26 @@ export function confirmBatchInvoiceSale(
     for (const item of items) {
       const { variantId, quantity } = item;
       
-      // 1. Obtener el producto del inventario
-      const ingredient = database.prepare('SELECT * FROM ingredients WHERE id = ?').get(variantId) as any;
-      if (!ingredient) {
-        throw new Error(`El producto con ID ${variantId} no existe en el inventario.`);
+      // 1. Obtener el producto terminado del inventario
+      const product = database.prepare('SELECT * FROM finished_products WHERE id = ?').get(variantId) as any;
+      if (!product) {
+        throw new Error(`El producto con ID ${variantId} no existe en el almacén final.`);
       }
       
       // 2. Descontar el stock
-      const newStock = ingredient.currentStock - quantity;
+      const newStock = product.stock - quantity;
+      if (newStock < 0) {
+        throw new Error(`Stock insuficiente para el producto ${product.name}. Disponible: ${product.stock}, Solicitado: ${quantity}`);
+      }
       
-      // Registrar el movimiento de egreso en el inventario de forma automática
-      const movementId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      database.prepare(`
-        INSERT INTO movements (id, ingredientId, type, quantity, reason, location, beforeStock, afterStock, createdAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        movementId,
-        variantId,
-        'egreso',
-        quantity,
-        `Venta - Boleta ${invoiceNumber}`,
-        DEFAULT_LOCATION,
-        ingredient.currentStock,
-        newStock,
-        new Date().toISOString()
-      );
-
-      // Calcular nuevo costo total (costPerGram * newStock)
-      const newTotalCost = Math.round((ingredient.costPerGram * newStock) * 100) / 100;
-
-      // Actualizar stock e importes en ingredients
-      database.prepare('UPDATE ingredients SET currentStock = ?, totalCost = ? WHERE id = ?').run(newStock, newTotalCost, variantId);
+      // Actualizar stock en finished_products
+      database.prepare('UPDATE finished_products SET stock = ? WHERE id = ?').run(newStock, variantId);
       
-      updatedIngredients.push({ ...ingredient, currentStock: newStock });
+      updatedIngredients.push({ ...product, stock: newStock });
       
       // 3. Crear el Asiento Contable (Ingreso)
       const transactionId = `tx-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
-      const itemPrice = ingredient.price || 0;
-      const itemWeight = ingredient.weight || 0;
+      const itemPrice = product.price || 0;
       
       let clientDetailsStr = '';
       if (clientData.idType && clientData.idNumber) {
@@ -900,7 +993,7 @@ export function confirmBatchInvoiceSale(
         transactionId,
         'income',
         itemPrice * quantity,
-        `Venta POS ${clientData.name || 'Clientes Varios'} - Boleta ${invoiceNumber} | Detalle: ${quantity}x ${ingredient.name} (${itemWeight}g)${clientDetailsStr}`,
+        `Venta POS ${clientData.name || 'Clientes Varios'} - Boleta ${invoiceNumber} | Detalle: ${quantity}x ${product.name}${clientDetailsStr}`,
         new Date().toISOString().split('T')[0], // YYYY-MM-DD
         'cat-venta',
         invoiceNumber
@@ -958,3 +1051,143 @@ export default {
   deleteVariant,
   confirmBatchInvoiceSale,
 };
+
+// === Métodos del Almacén Final (finished_products) y Producción ===
+
+export function getAllFinishedProducts() {
+  init();
+  return getDb().prepare('SELECT * FROM finished_products ORDER BY name ASC').all() as FinishedProduct[];
+}
+
+export function getFinishedProductById(id: string) {
+  init();
+  return getDb().prepare('SELECT * FROM finished_products WHERE id = ?').get(id) as FinishedProduct | undefined;
+}
+
+export function getFinishedProductByName(name: string) {
+  init();
+  return getDb().prepare('SELECT * FROM finished_products WHERE name = ?').get(name) as FinishedProduct | undefined;
+}
+
+export function upsertFinishedProduct(name: string, stockAdjustment: number, price: number) {
+  init();
+  const database = getDb();
+  const existing = getFinishedProductByName(name);
+
+  if (existing) {
+    const newStock = existing.stock + stockAdjustment;
+    database.prepare(
+      'UPDATE finished_products SET stock = ?, price = ? WHERE id = ?'
+    ).run(newStock, price, existing.id);
+    return getFinishedProductById(existing.id);
+  } else {
+    const id = `fin-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    database.prepare(
+      'INSERT INTO finished_products (id, name, stock, price) VALUES (?, ?, ?, ?)'
+    ).run(id, name, stockAdjustment, price);
+    return getFinishedProductById(id);
+  }
+}
+
+export function getRecipeIngredientsRelational(recipeId: string) {
+  init();
+  return getDb().prepare(`
+    SELECT ri.ingredientId, ri.percentage, i.name, i.currentStock, i.costPerGram, i.sapValue
+    FROM recipe_ingredients ri
+    JOIN ingredients i ON ri.ingredientId = i.id
+    WHERE ri.recipeId = ?
+  `).all(recipeId) as Array<{
+    ingredientId: string;
+    percentage: number;
+    name: string;
+    currentStock: number;
+    costPerGram: number;
+    sapValue: number;
+  }>;
+}
+
+export function saveProductionBatch(batch: Omit<ProductionBatch, 'createdAt'>, outputs: Array<{ finishedProductId: string; quantity: number }>) {
+  init();
+  const database = getDb();
+  const createdAt = new Date().toISOString();
+  
+  database.prepare(`
+    INSERT INTO production_batches (id, recipeId, totalGramsProduced, rawMaterialCost, laborCost, totalProductionCost, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(batch.id, batch.recipeId, batch.totalGramsProduced, batch.rawMaterialCost, batch.laborCost, batch.totalProductionCost, createdAt);
+
+  const insertOutput = database.prepare(`
+    INSERT INTO production_batch_outputs (id, batchId, finishedProductId, quantity)
+    VALUES (?, ?, ?, ?)
+  `);
+
+  for (const output of outputs) {
+    const outputId = `out-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+    insertOutput.run(outputId, batch.id, output.finishedProductId, output.quantity);
+  }
+}
+
+export function getAllProductionBatches() {
+  init();
+  return getDb().prepare(`
+    SELECT pb.*, r.name as recipeName
+    FROM production_batches pb
+    LEFT JOIN recipes r ON pb.recipeId = r.id
+    ORDER BY pb.createdAt DESC
+  `).all();
+}
+
+export function getProductionBatchDetails(batchId: string) {
+  init();
+  const database = getDb();
+  const batch = database.prepare('SELECT * FROM production_batches WHERE id = ?').get(batchId);
+  if (!batch) return null;
+
+  const outputs = database.prepare(`
+    SELECT pbo.*, fp.name as productName, fp.price
+    FROM production_batch_outputs pbo
+    JOIN finished_products fp ON pbo.finishedProductId = fp.id
+    WHERE pbo.batchId = ?
+  `).all(batchId);
+
+  return { ...batch, outputs };
+}
+
+export function createFinishedProduct(product: any) {
+  init();
+  const id = product.id || `fin-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+  getDb().prepare(
+    'INSERT INTO finished_products (id, name, stock, price) VALUES (?, ?, ?, ?)'
+  ).run(id, product.name, product.stock || 0, product.price || 0);
+  return getFinishedProductById(id);
+}
+
+export function updateFinishedProduct(id: string, product: any) {
+  init();
+  getDb().prepare(
+    'UPDATE finished_products SET name = ?, stock = ?, price = ? WHERE id = ?'
+  ).run(product.name, product.stock, product.price, id);
+  return getFinishedProductById(id);
+}
+
+export function deleteFinishedProduct(id: string) {
+  init();
+  const existing = getFinishedProductById(id);
+  getDb().prepare('DELETE FROM finished_products WHERE id = ?').run(id);
+  return existing;
+}
+
+// Registrar los nuevos métodos para que se exporten correctamente en CommonJS/ESM
+Object.assign(module.exports.default || module.exports, {
+  getAllFinishedProducts,
+  getFinishedProductById,
+  getFinishedProductByName,
+  upsertFinishedProduct,
+  getRecipeIngredientsRelational,
+  saveProductionBatch,
+  getAllProductionBatches,
+  getProductionBatchDetails,
+  createFinishedProduct,
+  updateFinishedProduct,
+  deleteFinishedProduct
+});
